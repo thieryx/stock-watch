@@ -26,7 +26,7 @@ VARIANT_ID = 53733990728043          # Heather Grey / Medium
 # Choisis un nom de topic unique et difficile à deviner (n'importe qui
 # connaissant le nom peut lire/écrire dessus). Abonne-toi au même nom
 # dans l'app ntfy sur ton téléphone.
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "youngla-stock-CHANGE-MOI-8f3k2")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "youngla-thierry-x7k2p")
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
 
 INTERVAL = int(os.environ.get("INTERVAL", "300"))   # secondes entre 2 vérifs (mode boucle)
