@@ -1,0 +1,33 @@
+# À placer dans ton repo GitHub : .github/workflows/stock-watch.yml
+# (avec stock_watch.py à la racine du repo)
+# Secret à créer : Settings > Secrets and variables > Actions > NTFY_TOPIC
+name: Stock watch YoungLA
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # toutes les 10 min (GitHub peut décaler de quelques minutes)
+  workflow_dispatch:          # bouton "Run workflow" pour tester à la main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mémorise le dernier état pour ne notifier qu'au retour en stock
+      - uses: actions/cache/restore@v4
+        with:
+          path: stock_state.json
+          key: stock-state-${{ github.run_id }}
+          restore-keys: stock-state-
+
+      - name: Vérifier le stock
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python3 stock_watch.py --once
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: stock_state.json
+          key: stock-state-${{ github.run_id }}
