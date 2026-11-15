@@ -16,6 +16,7 @@ import os
 import random
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime
 
@@ -26,7 +27,7 @@ VARIANT_ID = 53733990728043          # Heather Grey / Medium
 # Choisis un nom de topic unique et difficile à deviner (n'importe qui
 # connaissant le nom peut lire/écrire dessus). Abonne-toi au même nom
 # dans l'app ntfy sur ton téléphone.
-NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "youngla-thierry-x7k2p")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")  # via variable d'env / secret GitHub
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh")
 
 INTERVAL = int(os.environ.get("INTERVAL", "300"))   # secondes entre 2 vérifs (mode boucle)
@@ -41,14 +42,36 @@ def log(msg):
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
 
 
+class RateLimited(Exception):
+    """Le site renvoie 429 même après plusieurs essais."""
+
+
+def _get_json(url, attempts=4):
+    """GET JSON avec retry/backoff sur 429 et erreurs 5xx."""
+    req = urllib.request.Request(
+        url, headers={"User-Agent": UA, "Accept": "application/json"}
+    )
+    for i in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500:
+                raise
+            if i == attempts - 1:
+                if e.code == 429:
+                    raise RateLimited(url) from e
+                raise
+            retry_after = e.headers.get("Retry-After", "")
+            delay = int(retry_after) if retry_after.isdigit() else 5 * 2 ** i
+            delay = min(delay, 60) + random.uniform(0, 3)
+            log(f"HTTP {e.code} sur {url}, nouvel essai dans {delay:.0f}s")
+            time.sleep(delay)
+
+
 def fetch_variant():
     """Retourne (titre_produit, titre_variante, disponible, prix_en_euros)."""
-    req = urllib.request.Request(
-        PRODUCT_URL.rstrip("/") + ".js",
-        headers={"User-Agent": UA, "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.load(r)
+    data = _get_json(PRODUCT_URL.rstrip("/") + ".js")
     for v in data["variants"]:
         if v["id"] == VARIANT_ID:
             return data["title"], v["title"], bool(v["available"]), v["price"] / 100
@@ -56,6 +79,8 @@ def fetch_variant():
 
 
 def notify(title, message, priority="high", click=None):
+    if not NTFY_TOPIC:
+        raise SystemExit("NTFY_TOPIC non défini (variable d'environnement)")
     req = urllib.request.Request(
         f"{NTFY_SERVER}/{NTFY_TOPIC}",
         data=message.encode("utf-8"),
@@ -107,7 +132,12 @@ def main():
         log("Notif de test envoyée")
         return
     if "--once" in sys.argv:
-        check()
+        try:
+            check()
+        except RateLimited:
+            # IP partagée des runners GitHub souvent limitée par Shopify :
+            # on saute cette vérif sans faire échouer le job (état inchangé).
+            log("Rate-limité (429) malgré les essais, vérif sautée")
         return
 
     log(f"Surveillance démarrée (toutes les {INTERVAL}s) — Ctrl+C pour arrêter")
